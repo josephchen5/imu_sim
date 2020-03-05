@@ -11,12 +11,8 @@
 // rosservice call example_minimal_service     // sends a trigger signal; don't need a request argument
 
 // this header incorporates all the necessary #include files and defines the class "ExampleRosClass"
-#include "example_ros_class.h"
-
-#include <fstream>
-#include <sys/stat.h>
-#include "imu.h"
-#include "utilities.h"
+// #include "example_ros_class.h"
+#include "imu_sim_class.h"
 
 //CONSTRUCTOR:  this will get called whenever an instance of this class is created
 // want to put all dirty work of initializations here
@@ -30,6 +26,44 @@ ExampleRosClass::ExampleRosClass(ros::NodeHandle *nodehandle) : nh_(*nodehandle)
 
     //initialize variables here, as needed
     val_to_remember_ = 0.0;
+
+    // // IMU model
+    Param params;
+    IMU imuGen(params);
+
+    // create imu data
+    // imu pose gyro acc
+    std::vector<MotionData> imudata;
+    std::vector<MotionData> imudata_noise;
+
+    int hz = 50;
+    ros::Rate loop_rate(hz);
+
+    for (float t = params.t_start; t < params.t_end;)
+    {
+
+        ROS_INFO(" Time : %lf S", t);
+
+        MotionData data = imuGen.MotionModel(t);
+
+        Eigen::Vector3d imu_position;
+        Eigen::Matrix3d imu_rotation;
+        imu_position = data.twb;
+        imu_rotation = data.Rwb;
+
+        Publishtf(tfb, imu_position, imu_rotation);
+
+        imudata.push_back(data);
+        PublishPath(imu_path_publisher_, imudata);
+
+        // add imu noise
+        MotionData data_noise = data;
+        imuGen.addIMUnoise(data_noise);
+        imudata_noise.push_back(data_noise);
+
+        t += 1.0 / params.imu_frequency;
+        loop_rate.sleep();
+    }
 
     // can also do tests/waits to make sure all required services, topics, etc are alive
 }
@@ -60,6 +94,8 @@ void ExampleRosClass::initializePublishers()
 {
     ROS_INFO("Initializing Publishers");
     minimal_publisher_ = nh_.advertise<std_msgs::Float32>("example_class_output_topic", 1, true);
+    imu_path_publisher_ = nh_.advertise<nav_msgs::Path>("imu_path", 1, true);
+
     //add more publishers, as needed
     // note: COULD make minimal_publisher_ a public member function, if want to use it within "main()"
 }
@@ -89,6 +125,56 @@ bool ExampleRosClass::serviceCallback(std_srvs::TriggerRequest &request, std_srv
     return true;
 }
 
+void ExampleRosClass::Publishtf(tf::TransformBroadcaster &tfb, Eigen::Vector3d &position, Eigen::Matrix3d &rotation)
+{
+    // 參考 https://github.com/ros-planning/navigation/blob/kinetic-devel/amcl/src/amcl_node.cpp#L1359
+
+    std::string new_base_frame_id_ = "/base_link";
+    std::string global_frame_id_ = "/map";
+
+    // tf::Transform new_tf(tf::createQuaternionFromYaw(finalPose(2)),
+    //                      tf::Vector3(finalPose(0), finalPose(1), 0.0));
+
+    tf::Quaternion q;
+    q.setRPY(0, 0, 0);
+
+    tf::Transform new_tf(q, tf::Vector3(position(0), position(1), position(2)));
+
+    tf::StampedTransform new_tf_stamped(new_tf,
+                                        ros::Time::now(),
+                                        global_frame_id_, new_base_frame_id_);
+    tfb.sendTransform(new_tf_stamped);
+}
+
+void ExampleRosClass::PublishPath(ros::Publisher &puber, std::vector<MotionData> &imudata)
+{
+    nav_msgs::Path path_msg;
+    path_msg.header.stamp = ros::Time::now();
+    path_msg.header.frame_id = "/map";
+
+    geometry_msgs::PoseStamped pose;
+    pose.header.stamp = ros::Time::now();
+    pose.header.frame_id = "/map";
+
+    std::cout << " numbers: = " << imudata.size() << std::endl;
+
+    for (int i = 0; i < imudata.size(); i++)
+    {
+        Eigen::Vector3d traj_node = imudata[i].twb;
+        pose.pose.position.x = traj_node(0);
+        pose.pose.position.y = traj_node(1);
+        pose.pose.position.z = traj_node(2);
+
+        tf::Quaternion q;
+        q.setRPY(0, 0, 0);
+
+        pose.pose.orientation = tf::createQuaternionMsgFromYaw(0.0);
+        path_msg.poses.push_back(pose);
+    }
+
+    puber.publish(path_msg);
+}
+
 int main(int argc, char **argv)
 {
     // ROS set-ups:
@@ -99,29 +185,32 @@ int main(int argc, char **argv)
     ROS_INFO("main: instantiating an object of type ExampleRosClass");
     ExampleRosClass exampleRosClass(&nh); //instantiate an ExampleRosClass object and pass in pointer to nodehandle for constructor to use
 
-    // IMU model
-    Param params;
-    IMU imuGen(params);
+    // int hz = 20;
+    // ros::Rate loop_rate(hz);
 
-    // create imu data
-    // imu pose gyro acc
-    std::vector<MotionData> imudata;
-    std::vector<MotionData> imudata_noise;
+    // for (float t = params.t_start; t < params.t_end;)
+    // {
 
-    for (float t = params.t_start; t < params.t_end;)
-    {
-        // ROS_INFO(" Time : %lf S",t);
+    //     ROS_INFO(" Time : %lf S", t);
 
-        MotionData data = imuGen.MotionModel(t);
-        imudata.push_back(data);
+    //     MotionData data = imuGen.MotionModel(t);
 
-        // add imu noise
-        MotionData data_noise = data;
-        imuGen.addIMUnoise(data_noise);
-        imudata_noise.push_back(data_noise);
+    //     Eigen::Vector3d imu_positiontf;
+    //     imu_positiontf = data.twb;
 
-        t += 1.0 / params.imu_frequency;
-    }
+    //     Publishtf(tfb, imu_positiontf);
+
+    //     imudata.push_back(data);
+
+    //     // add imu noise
+    //     MotionData data_noise = data;
+    //     imuGen.addIMUnoise(data_noise);
+    //     imudata_noise.push_back(data_noise);
+
+    //     t += 1.0 / params.imu_frequency;
+
+    //     loop_rate.sleep();
+    // }
 
     ROS_INFO("main: going into spin; let the callbacks do all the work");
 
