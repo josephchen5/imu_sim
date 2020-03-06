@@ -42,7 +42,7 @@ ExampleRosClass::ExampleRosClass(ros::NodeHandle *nodehandle) : nh_(*nodehandle)
     for (float t = params.t_start; t < params.t_end;)
     {
 
-        ROS_INFO(" Time : %lf S", t);
+        // ROS_INFO(" Time : %lf S", t);
 
         MotionData data = imuGen.MotionModel(t);
 
@@ -51,19 +51,31 @@ ExampleRosClass::ExampleRosClass(ros::NodeHandle *nodehandle) : nh_(*nodehandle)
         imu_position = data.twb;
         imu_rotation = data.Rwb;
 
+        // std::cout << "gyro      :" << data.imu_gyro.transpose() << std::endl;
+
         Publishtf(tfb, imu_position, imu_rotation);
 
         imudata.push_back(data);
+        // 發布模擬 imu 軌跡
         PublishPath(imu_path_publisher_, imudata);
 
         // add imu noise
         MotionData data_noise = data;
         imuGen.addIMUnoise(data_noise);
+
+        // std::cout << "gyro_noise:" << data_noise.imu_gyro.transpose() << std::endl;
+
         imudata_noise.push_back(data_noise);
+        // 發布 imu 加入誤差後 軌跡
+        PublishPath(imu_noise_path_publisher_, imudata_noise);
 
         t += 1.0 / params.imu_frequency;
         loop_rate.sleep();
     }
+    imuGen.init_velocity_ = imudata[0].imu_velocity;
+    imuGen.init_twb_ = imudata.at(0).twb;
+    imuGen.init_Rwb_ = imudata.at(0).Rwb;
+
 
     // can also do tests/waits to make sure all required services, topics, etc are alive
 }
@@ -95,6 +107,7 @@ void ExampleRosClass::initializePublishers()
     ROS_INFO("Initializing Publishers");
     minimal_publisher_ = nh_.advertise<std_msgs::Float32>("example_class_output_topic", 1, true);
     imu_path_publisher_ = nh_.advertise<nav_msgs::Path>("imu_path", 1, true);
+    imu_noise_path_publisher_ = nh_.advertise<nav_msgs::Path>("imu_noise_path", 1, true);
 
     //add more publishers, as needed
     // note: COULD make minimal_publisher_ a public member function, if want to use it within "main()"
@@ -156,7 +169,7 @@ void ExampleRosClass::PublishPath(ros::Publisher &puber, std::vector<MotionData>
     pose.header.stamp = ros::Time::now();
     pose.header.frame_id = "/map";
 
-    std::cout << " numbers: = " << imudata.size() << std::endl;
+    // std::cout << " numbers: = " << imudata.size() << std::endl;
 
     for (int i = 0; i < imudata.size(); i++)
     {

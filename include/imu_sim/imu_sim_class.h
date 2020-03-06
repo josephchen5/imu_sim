@@ -50,6 +50,7 @@ private:
     tf::TransformBroadcaster tfb;
 
     ros::Publisher imu_path_publisher_;
+    ros::Publisher imu_noise_path_publisher_;
 
 
     double val_from_subscriber_; //example member variable: better than using globals; convenient way to pass data from a subscriber to other member functions
