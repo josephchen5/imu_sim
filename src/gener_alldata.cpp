@@ -14,6 +14,10 @@
 // #include "example_ros_class.h"
 #include "imu_sim_class.h"
 
+#include "tf/transform_datatypes.h"
+#include "Eigen/Core"
+#include "Eigen/Geometry"
+
 //CONSTRUCTOR:  this will get called whenever an instance of this class is created
 // want to put all dirty work of initializations here
 // odd syntax: have to pass nodehandle pointer into constructor for constructor to build subscribers, etc
@@ -35,25 +39,31 @@ ExampleRosClass::ExampleRosClass(ros::NodeHandle *nodehandle) : nh_(*nodehandle)
     // imu pose gyro acc
     std::vector<MotionData> imudata;
     std::vector<MotionData> imudata_noise;
+    std::vector<MotionData> paths_noise; // imu 动力学模型 欧拉积分
+    std::vector<MotionData> paths_mid_noise; // imu 动力学模型 中值积分
 
     int hz = 50;
     ros::Rate loop_rate(hz);
 
+    int index_i = 0;
+
     for (float t = params.t_start; t < params.t_end;)
     {
-
         // ROS_INFO(" Time : %lf S", t);
 
         MotionData data = imuGen.MotionModel(t);
 
-        Eigen::Vector3d imu_position;
-        Eigen::Matrix3d imu_rotation;
-        imu_position = data.twb;
-        imu_rotation = data.Rwb;
+        // Eigen::Vector3d imu_position;
+        // Eigen::Matrix3d imu_rotation;
+        // imu_position = data.twb;
+        // imu_rotation = data.Rwb;
+
+        // Publishtf(tfb, imu_position, imu_rotation);
 
         // std::cout << "gyro      :" << data.imu_gyro.transpose() << std::endl;
 
-        Publishtf(tfb, imu_position, imu_rotation);
+        // 發布模擬 imu tf
+        Publishtf(tfb, data.twb, data.Rwb);
 
         imudata.push_back(data);
         // 發布模擬 imu 軌跡
@@ -66,16 +76,69 @@ ExampleRosClass::ExampleRosClass(ros::NodeHandle *nodehandle) : nh_(*nodehandle)
         // std::cout << "gyro_noise:" << data_noise.imu_gyro.transpose() << std::endl;
 
         imudata_noise.push_back(data_noise);
+
+
+        // add imu noise path
+        MotionData path_noise = data_noise;   // imu 动力学模型 欧拉积分
+        MotionData path_mid_noise = data_noise; // imu 动力学模型 中值积分
+
+        static bool isFirstFrame = true; //只會宣告一次
+
+        std::cout << " the isFirstFrame : " << isFirstFrame << std::endl;
+
+        if (isFirstFrame == true)
+        {
+            std::cout << " First Frame !!!! " << std::endl;
+            isFirstFrame = false;
+            paths_noise.push_back(path_noise);
+            paths_mid_noise.push_back(path_mid_noise);
+            // return;
+        }
+        else
+        {
+            std::cout << " Not First Frame !!!! " << std::endl;
+            // imu 动力学模型 欧拉积分
+
+            Eigen::Vector3d Pwb_pre = paths_noise[index_i - 1].twb;         // t-1 position
+            Eigen::Quaterniond Qwb_pre(paths_noise[index_i - 1].Rwb);       // t-1 quaterniond
+            Eigen::Vector3d Vw_pre = paths_noise[index_i - 1].imu_velocity; // t-1 velocity
+
+
+
+
+            Eigen::Vector3d gw(0, 0, -9.81); // ENU frame
+            double dt = params.imu_timestep;
+
+            //delta_q = [1 , 1/2 * thetax , 1/2 * theta_y, 1/2 * theta_z]
+            Eigen::Quaterniond dq;
+            Eigen::Vector3d dtheta_half = path_noise.imu_gyro * dt / 2.0;
+            dq.w() = 1;
+            dq.x() = dtheta_half.x();
+            dq.y() = dtheta_half.y();
+            dq.z() = dtheta_half.z();
+            dq.normalize();
+
+            Eigen::Vector3d acc_w = Qwb_pre * (path_noise.imu_acc) + gw; // aw = Rwb * ( acc_body - acc_bias ) + gw
+            // 更新 有 noise 的姿態
+            path_noise.Rwb = (Qwb_pre * dq).toRotationMatrix();
+            path_noise.twb = Pwb_pre + Vw_pre * dt + 0.5 * dt * dt * acc_w;
+            path_noise.imu_velocity = Vw_pre + acc_w * dt;
+
+            paths_noise.push_back(path_noise);
+        }
+
         // 發布 imu 加入誤差後 軌跡
-        PublishPath(imu_noise_path_publisher_, imudata_noise);
+        PublishPath(imu_noise_path_publisher_, paths_noise);
 
         t += 1.0 / params.imu_frequency;
+
+        index_i++;
+
         loop_rate.sleep();
     }
     imuGen.init_velocity_ = imudata[0].imu_velocity;
     imuGen.init_twb_ = imudata.at(0).twb;
     imuGen.init_Rwb_ = imudata.at(0).Rwb;
-
 
     // can also do tests/waits to make sure all required services, topics, etc are alive
 }
@@ -148,8 +211,14 @@ void ExampleRosClass::Publishtf(tf::TransformBroadcaster &tfb, Eigen::Vector3d &
     // tf::Transform new_tf(tf::createQuaternionFromYaw(finalPose(2)),
     //                      tf::Vector3(finalPose(0), finalPose(1), 0.0));
 
+    // Eigen::Quaterniond Qwb(rotation);   // quaterniond:  from imu measurements
+
+    tf::Matrix3x3 rotation_tf;
+    tf::matrixEigenToTF(rotation, rotation_tf);
+
     tf::Quaternion q;
-    q.setRPY(0, 0, 0);
+    // q.setRPY(0, 0, 0);
+    rotation_tf.getRotation(q);
 
     tf::Transform new_tf(q, tf::Vector3(position(0), position(1), position(2)));
 

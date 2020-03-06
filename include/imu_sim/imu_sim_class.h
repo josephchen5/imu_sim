@@ -15,6 +15,10 @@
 #include "tf/transform_broadcaster.h"
 #include "nav_msgs/Path.h"
 
+#include "tf/transform_datatypes.h"
+#include "tf_conversions/tf_eigen.h"
+
+
 //some generically useful stuff to include...
 #include <math.h>
 #include <stdlib.h>
@@ -22,6 +26,13 @@
 #include <vector>
 
 #include <eigen3/Eigen/Core>
+
+
+#include "Eigen/Core"
+#include "eigen3/Eigen/Geometry"
+
+// #include "eigen3/Eigen/Geometry"
+
 
 #include <fstream>
 #include <sys/stat.h>

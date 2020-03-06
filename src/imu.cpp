@@ -59,7 +59,7 @@ void IMU::addIMUnoise(MotionData &data)
 
     Eigen::Vector3d noise_gyro(noise(generator_), noise(generator_), noise(generator_));
 
-    std::cout << "noise_gyro:" << noise_gyro.transpose() << std::endl;
+    // std::cout << "noise_gyro:" << noise_gyro.transpose() << std::endl;
 
     Eigen::Matrix3d gyro_sqrt_cov = param_.gyro_noise_sigma * Eigen::Matrix3d::Identity();
 
@@ -99,6 +99,8 @@ MotionData IMU::MotionModel(double t)
     Eigen::Vector3d dp(-K * ellipse_x * sin(K * t), K * ellipse_y * cos(K * t), z * K1 * K * cos(K1 * K * t)); // position导数　in world frame
     double K2 = K * K;
     Eigen::Vector3d ddp(-K2 * ellipse_x * cos(K * t), -K2 * ellipse_y * sin(K * t), -z * K1 * K1 * K2 * sin(K1 * K * t)); // position二阶导数
+
+    std::cout << " t: " << t << "  position: " <<position.transpose()<<" imu_velocity: "<<dp.transpose()<< std::endl;
 
     // Rotation
     double k_roll = 0.1;
@@ -163,29 +165,29 @@ void IMU::testImu(std::string src, std::string dist)
 
         /// 中值积分
 
-        MotionData imupose_pre = imudata[i - 1]; //保留前一时刻
-        MotionData imupose_now = imudata[i];     //当前时刻
-        MotionData imupose_mean = imudata[i];
-        imupose_mean.imu_gyro = (imupose_pre.imu_gyro + imupose_now.imu_gyro) /
-                                2.0; //取中值之后的ω
-        Eigen::Quaterniond dq;
-        Eigen::Vector3d dtheta_half = (imupose_mean.imu_gyro) * dt / 2.0; //
-        dq.w() = 1;
-        dq.x() = dtheta_half.x();
-        dq.y() = dtheta_half.y();
-        dq.z() = dtheta_half.z();
-        // imu 动力学模型 参考svo预积分论文
-        Eigen::Vector3d acc_w = Qwb * (imupose_mean.imu_acc) + gw;
-        // aw = Rwb * ( acc_body - acc_bias ) + gw
-        Qwb = Qwb * dq;
-        //Qwb+1
-        Eigen::Vector3d acc_w1 = Qwb * (imupose_now.imu_acc) + gw;
-        // aw = Rwb * ( acc_body - acc_bias ) + gw
-        acc_w = (acc_w + acc_w1) / 2.0;
-        //Pwb update
-        Pwb = Pwb + Vw * dt + 0.5 * dt * dt * acc_w;
-        //Vw update
-        Vw = Vw + acc_w * dt;
+        // MotionData imupose_pre = imudata[i - 1]; //保留前一时刻
+        // MotionData imupose_now = imudata[i];     //当前时刻
+        // MotionData imupose_mean = imudata[i];
+        // imupose_mean.imu_gyro = (imupose_pre.imu_gyro + imupose_now.imu_gyro) /
+        //                         2.0; //取中值之后的ω
+        // Eigen::Quaterniond dq;
+        // Eigen::Vector3d dtheta_half = (imupose_mean.imu_gyro) * dt / 2.0; //
+        // dq.w() = 1;
+        // dq.x() = dtheta_half.x();
+        // dq.y() = dtheta_half.y();
+        // dq.z() = dtheta_half.z();
+        // // imu 动力学模型 参考svo预积分论文
+        // Eigen::Vector3d acc_w = Qwb * (imupose_mean.imu_acc) + gw;
+        // // aw = Rwb * ( acc_body - acc_bias ) + gw
+        // Qwb = Qwb * dq;
+        // //Qwb+1
+        // Eigen::Vector3d acc_w1 = Qwb * (imupose_now.imu_acc) + gw;
+        // // aw = Rwb * ( acc_body - acc_bias ) + gw
+        // acc_w = (acc_w + acc_w1) / 2.0;
+        // //Pwb update
+        // Pwb = Pwb + Vw * dt + 0.5 * dt * dt * acc_w;
+        // //Vw update
+        // Vw = Vw + acc_w * dt;
 
         //　按着imu postion, imu quaternion , cam postion, cam quaternion 的格式存储，由于没有cam，所以imu存了两次
         save_points << imupose.timestamp << " "
